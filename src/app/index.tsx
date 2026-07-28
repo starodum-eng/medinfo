@@ -1,7 +1,10 @@
 import { Redirect } from 'expo-router';
 
-// Точка входа. Реальная проверка сессии Supabase появится на этапе авторизации.
-// Пока стартуем с экрана «Вход».
+import { useAuth } from '@/lib/auth';
+
+// Точка входа. Пока восстанавливается сессия — корневой layout показывает лоадер,
+// поэтому здесь просто выбираем, куда направить пользователя.
 export default function Index() {
-  return <Redirect href="/login" />;
+  const { session } = useAuth();
+  return <Redirect href={session ? '/(tabs)' : '/login'} />;
 }
