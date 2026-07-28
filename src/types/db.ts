@@ -151,26 +151,31 @@ export type Database = {
         Row: Profile;
         Insert: ProfileInsert;
         Update: ProfileUpdate;
+        Relationships: [];
       };
       documents: {
         Row: DocumentRow;
         Insert: DocumentInsert;
         Update: DocumentUpdate;
+        Relationships: [];
       };
       lab_results: {
         Row: LabResult;
         Insert: LabResultInsert;
         Update: LabResultUpdate;
+        Relationships: [];
       };
       red_flags: {
         Row: RedFlag;
         Insert: RedFlagInsert;
         Update: RedFlagUpdate;
+        Relationships: [];
       };
       reminders: {
         Row: Reminder;
         Insert: ReminderInsert;
         Update: ReminderUpdate;
+        Relationships: [];
       };
     };
     Views: Record<string, never>;
