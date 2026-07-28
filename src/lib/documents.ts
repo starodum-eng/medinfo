@@ -64,3 +64,30 @@ export async function uploadDocument({
 
   return data;
 }
+
+export type ProcessResult = {
+  ok: true;
+  results_count: number;
+  red_flags_count: number;
+};
+
+/**
+ * Запускает распознавание документа Edge Function'ом `process-document`.
+ * JWT пользователя пробрасывается автоматически (invoke берёт его из сессии),
+ * поэтому функция работает под RLS и видит только свои данные.
+ * Бросает Error с понятным сообщением при неуспехе.
+ */
+export async function processDocument(documentId: string): Promise<ProcessResult> {
+  const { data, error } = await supabase.functions.invoke<ProcessResult | { error: string }>(
+    'process-document',
+    { body: { document_id: documentId } },
+  );
+
+  if (error) {
+    throw new Error(error.message || 'Не удалось распознать анализ.');
+  }
+  if (!data || 'error' in data) {
+    throw new Error((data as { error?: string })?.error ?? 'Не удалось распознать анализ.');
+  }
+  return data;
+}

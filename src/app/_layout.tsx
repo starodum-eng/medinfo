@@ -16,12 +16,15 @@ function RootNavigator() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inTabs = segments[0] === '(tabs)';
+    // «Экраны входа» — это login и корневой редирект (index, segments[0] === undefined).
+    // Всё остальное (вкладки, разбор документа) доступно только с сессией.
+    const seg0 = segments[0];
+    const onAuthScreen = seg0 === undefined || seg0 === 'login';
 
-    if (!session && inTabs) {
-      // Нет сессии, а пользователь во вкладках — выкидываем на вход.
+    if (!session && !onAuthScreen) {
+      // Нет сессии на защищённом экране — выкидываем на вход.
       router.replace('/login');
-    } else if (session && !inTabs) {
+    } else if (session && onAuthScreen) {
       // Есть сессия, но мы на входе/редиректе — уводим во вкладки.
       router.replace('/(tabs)');
     }
@@ -46,6 +49,7 @@ function RootNavigator() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="document/[id]" options={{ title: 'Анализ' }} />
     </Stack>
   );
 }

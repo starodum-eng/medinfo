@@ -1,35 +1,63 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { Disclaimer } from '@/components/disclaimer';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { statusLabel } from '@/lib/labels';
 import { supabase } from '@/lib/supabase';
 import type { DocumentRow } from '@/types/db';
 
+type DocCard = DocumentRow & { resultsCount: number; hasUrgent: boolean; hasFlag: boolean };
+
 export default function HistoryScreen() {
   const theme = useTheme();
-  const [documents, setDocuments] = useState<DocumentRow[]>([]);
+  const router = useRouter();
+  const [docs, setDocs] = useState<DocCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    // Типизированный запрос: строки приходят как DocumentRow[]. RLS вернёт только свои.
-    const { data, error: qError } = await supabase
-      .from('documents')
-      .select('*')
-      .order('taken_at', { ascending: false });
-    if (qError) {
-      setError('Не удалось загрузить историю. Потяните, чтобы обновить позже.');
-      setDocuments([]);
-    } else {
-      setDocuments(data ?? []);
+    // Документы + сводка по показателям и красным флагам (всё под RLS — только свои).
+    const [docsRes, resRes, flagRes] = await Promise.all([
+      supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
+      supabase.from('lab_results').select('document_id'),
+      supabase.from('red_flags').select('document_id, severity'),
+    ]);
+
+    if (docsRes.error) {
+      setError('Не удалось загрузить историю. Попробуйте позже.');
+      setDocs([]);
+      setLoading(false);
+      return;
     }
+
+    const counts = new Map<string, number>();
+    for (const row of resRes.data ?? []) {
+      counts.set(row.document_id, (counts.get(row.document_id) ?? 0) + 1);
+    }
+    const urgentDocs = new Set<string>();
+    const flaggedDocs = new Set<string>();
+    for (const f of flagRes.data ?? []) {
+      if (!f.document_id) continue;
+      flaggedDocs.add(f.document_id);
+      if (f.severity === 'urgent') urgentDocs.add(f.document_id);
+    }
+
+    setDocs(
+      (docsRes.data ?? []).map((d) => ({
+        ...d,
+        resultsCount: counts.get(d.id) ?? 0,
+        hasUrgent: urgentDocs.has(d.id),
+        hasFlag: flaggedDocs.has(d.id),
+      })),
+    );
     setLoading(false);
   }, []);
 
@@ -52,22 +80,36 @@ export default function HistoryScreen() {
         <ThemedText type="default" style={{ color: theme.warning }}>
           {error}
         </ThemedText>
-      ) : documents.length === 0 ? (
+      ) : docs.length === 0 ? (
         <ThemedText type="default" themeColor="textSecondary" style={styles.placeholder}>
-          Здесь появится история ваших анализов и графики динамики показателей.
-          Пока данных нет — добавьте первый анализ на вкладке «Добавить».
+          Здесь появится история ваших анализов. Пока данных нет — добавьте
+          первый анализ на вкладке «Добавить».
         </ThemedText>
       ) : (
-        documents.map((doc) => (
-          <View
-            key={doc.id}
-            style={[styles.card, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
-            <ThemedText type="default">{doc.taken_at ?? 'Дата не указана'}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Статус: {doc.status}
-            </ThemedText>
-          </View>
-        ))
+        docs.map((doc) => {
+          const icon = doc.hasUrgent ? '⚠️' : doc.hasFlag ? '❗' : '';
+          return (
+            <Pressable
+              key={doc.id}
+              accessibilityRole="button"
+              onPress={() => router.push(`/document/${doc.id}`)}
+              style={[
+                styles.card,
+                { borderColor: doc.hasUrgent ? theme.danger : theme.border, backgroundColor: theme.backgroundElement },
+              ]}>
+              <View style={styles.cardHeader}>
+                <ThemedText type="default" style={styles.date}>
+                  {doc.taken_at ?? 'Дата не указана'}
+                </ThemedText>
+                {icon ? <ThemedText style={styles.icon}>{icon}</ThemedText> : null}
+              </View>
+              <ThemedText type="small" themeColor="textSecondary">
+                {statusLabel(doc.status)}
+                {doc.status === 'processed' ? ` · показателей: ${doc.resultsCount}` : ''}
+              </ThemedText>
+            </Pressable>
+          );
+        })
       )}
     </Screen>
   );
@@ -86,5 +128,16 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     borderWidth: StyleSheet.hairlineWidth,
     gap: Spacing.one,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  date: {
+    fontWeight: '600',
+  },
+  icon: {
+    fontSize: 16,
   },
 });

@@ -8,28 +8,30 @@ import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useAuth } from '@/lib/auth';
-import { uploadDocument } from '@/lib/documents';
+import { processDocument, uploadDocument } from '@/lib/documents';
 
 type Picked = { uri: string; base64: string; mimeType?: string | null };
+type Phase = 'idle' | 'uploading' | 'processing' | 'error';
 
 export default function AddScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { session } = useAuth();
 
-  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<Phase>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  // id уже загруженного документа — чтобы «Повторить» не грузил файл заново.
+  const [docId, setDocId] = useState<string | null>(null);
 
   function reset() {
+    setPhase('idle');
     setError(null);
-    setDone(false);
     setPreviewUri(null);
+    setDocId(null);
   }
 
   async function pick(source: 'camera' | 'library'): Promise<Picked | null> {
-    // Спрашиваем разрешение под конкретный источник.
     const perm =
       source === 'camera'
         ? await ImagePicker.requestCameraPermissionsAsync()
@@ -63,34 +65,53 @@ export default function AddScreen() {
     return { uri: asset.uri, base64: asset.base64, mimeType: asset.mimeType };
   }
 
+  // Распознаём и уходим на разбор документа. Ошибку показываем с «Повторить».
+  async function runProcessing(id: string) {
+    setPhase('processing');
+    setError(null);
+    try {
+      await processDocument(id);
+      router.replace(`/document/${id}`);
+      reset();
+    } catch (e) {
+      setError(
+        (e instanceof Error ? e.message : '') ||
+          'Не удалось распознать анализ. Попробуйте ещё раз.',
+      );
+      setPhase('error');
+    }
+  }
+
   async function handleAdd(source: 'camera' | 'library') {
     if (!session) return;
-    reset();
+    setError(null);
     const picked = await pick(source);
     if (!picked) return;
 
     setPreviewUri(picked.uri);
-    setBusy(true);
+    setPhase('uploading');
     try {
-      await uploadDocument({
+      const doc = await uploadDocument({
         userId: session.user.id,
         base64: picked.base64,
         mimeType: picked.mimeType,
       });
-      setDone(true);
+      setDocId(doc.id);
+      await runProcessing(doc.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить анализ.');
-    } finally {
-      setBusy(false);
+      setPhase('error');
     }
   }
+
+  const busy = phase === 'uploading' || phase === 'processing';
 
   return (
     <Screen>
       <ThemedText type="subtitle">Добавить анализ</ThemedText>
       <ThemedText type="default" themeColor="textSecondary">
         Сфотографируйте бумажный бланк анализа или выберите фото из галереи.
-        Распознавание показателей появится на следующем этапе.
+        Приложение распознает показатели и объяснит их простым языком.
       </ThemedText>
 
       {previewUri && (
@@ -101,25 +122,43 @@ export default function AddScreen() {
         <View style={styles.state}>
           <ActivityIndicator color={theme.tint} />
           <ThemedText type="small" themeColor="textSecondary">
-            Загружаем…
+            {phase === 'uploading' ? 'Загружаем…' : 'Распознаём анализ…'}
           </ThemedText>
         </View>
-      ) : done ? (
+      ) : phase === 'error' ? (
         <View style={styles.state}>
-          <ThemedText type="default" style={{ color: theme.tint }}>
-            Анализ загружен. Он появится в истории со статусом «в обработке».
+          <ThemedText type="small" style={{ color: theme.warning }}>
+            {error}
           </ThemedText>
-          <Pressable
-            accessibilityRole="button"
-            style={[styles.button, { backgroundColor: theme.tint }]}
-            onPress={() => router.push('/(tabs)')}>
-            <ThemedText style={styles.buttonText}>Перейти в историю</ThemedText>
-          </Pressable>
-          <Pressable accessibilityRole="button" style={styles.linkButton} onPress={reset}>
-            <ThemedText type="small" themeColor="textSecondary">
-              Добавить ещё
-            </ThemedText>
-          </Pressable>
+          {docId ? (
+            // Файл уже загружен — повторяем только распознавание.
+            <Pressable
+              accessibilityRole="button"
+              style={[styles.button, { backgroundColor: theme.tint }]}
+              onPress={() => runProcessing(docId)}>
+              <ThemedText style={styles.buttonText}>Повторить</ThemedText>
+            </Pressable>
+          ) : null}
+          <View style={styles.rowLinks}>
+            {docId && (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.linkButton}
+                onPress={() => {
+                  router.replace(`/document/${docId}`);
+                  reset();
+                }}>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Открыть документ
+                </ThemedText>
+              </Pressable>
+            )}
+            <Pressable accessibilityRole="button" style={styles.linkButton} onPress={reset}>
+              <ThemedText type="small" themeColor="textSecondary">
+                Начать заново
+              </ThemedText>
+            </Pressable>
+          </View>
         </View>
       ) : (
         <View style={styles.actions}>
@@ -139,12 +178,6 @@ export default function AddScreen() {
           </Pressable>
         </View>
       )}
-
-      {error && (
-        <ThemedText type="small" style={{ color: theme.warning }}>
-          {error}
-        </ThemedText>
-      )}
     </Screen>
   );
 }
@@ -159,6 +192,10 @@ const styles = StyleSheet.create({
     marginTop: Spacing.two,
     alignItems: 'flex-start',
   },
+  rowLinks: {
+    flexDirection: 'row',
+    gap: Spacing.four,
+  },
   preview: {
     width: '100%',
     height: 220,
@@ -169,6 +206,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     borderRadius: Spacing.three,
     alignItems: 'center',
+    alignSelf: 'stretch',
   },
   buttonText: {
     color: '#ffffff',
@@ -181,6 +219,7 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
+    alignSelf: 'stretch',
   },
   buttonOutlineText: {
     fontWeight: '600',
