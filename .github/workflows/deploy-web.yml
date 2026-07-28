@@ -1,0 +1,67 @@
+name: Deploy web to GitHub Pages
+
+# Собирает web-версию (expo export) и публикует её на GitHub Pages.
+# Источник Pages должен быть выставлен в "GitHub Actions"
+# (Settings → Pages → Build and deployment → Source: GitHub Actions).
+
+on:
+  push:
+    branches:
+      - claude/healthvault-foundation-6u53re
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Одновременно — только один деплой; новый отменяет прошлый незавершённый.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export web build
+        env:
+          # Под-путь проекта на Pages: https://<owner>.github.io/medinfo/
+          EXPO_BASE_URL: /medinfo
+          # Публичные ключи Supabase (anon/publishable). Задаются в
+          # Settings → Secrets and variables → Actions → Variables.
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: npx expo export --platform web
+
+      - name: Prepare static files for Pages
+        run: |
+          # .nojekyll — иначе GitHub Pages (Jekyll) выкидывает папку _expo/
+          touch dist/.nojekyll
+          # SPA-фолбэк: любой неизвестный путь отдаём как index.html,
+          # чтобы клиентские маршруты (/login и т.п.) открывались напрямую.
+          cp dist/index.html dist/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
