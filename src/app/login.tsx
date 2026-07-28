@@ -1,11 +1,5 @@
 import { useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleSheet,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
@@ -13,14 +7,14 @@ import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
-type Phase = 'email' | 'code';
-
+// Временный вход по email + паролю (MVP, пока не подключён SMTP для OTP).
+// Подтверждение e-mail в проекте отключено → после регистрации пользователь
+// сразу залогинен, и guard в корневом layout уводит во вкладки.
 export default function LoginScreen() {
   const theme = useTheme();
 
-  const [phase, setPhase] = useState<Phase>('email');
   const [email, setEmail] = useState('');
-  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,52 +23,72 @@ export default function LoginScreen() {
     { color: theme.text, borderColor: theme.border, backgroundColor: theme.backgroundElement },
   ];
 
-  async function sendCode() {
-    const trimmed = email.trim();
-    if (!trimmed) {
-      setError('Введите e-mail.');
-      return;
-    }
-    setError(null);
-    setLoading(true);
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: trimmed,
-      options: { shouldCreateUser: true },
-    });
-    setLoading(false);
-    if (otpError) {
-      setError('Не удалось отправить код. Проверьте e-mail и попробуйте ещё раз.');
-      return;
-    }
-    setCode('');
-    setPhase('code');
+  function validate(): string | null {
+    if (!email.trim()) return 'Введите e-mail.';
+    if (!password) return 'Введите пароль.';
+    if (password.length < 6) return 'Пароль должен быть не короче 6 символов.';
+    return null;
   }
 
-  async function verifyCode() {
-    const token = code.trim();
-    if (token.length !== 6) {
-      setError('Код состоит из 6 цифр.');
+  // Приводим типовые ошибки Supabase к понятному русскому тексту.
+  function humanError(message: string): string {
+    const m = message.toLowerCase();
+    if (m.includes('invalid login credentials')) return 'Неверный e-mail или пароль.';
+    if (m.includes('user already registered') || m.includes('already been registered')) {
+      return 'Такой e-mail уже зарегистрирован. Нажмите «Войти».';
+    }
+    if (m.includes('password should be at least')) {
+      return 'Пароль должен быть не короче 6 символов.';
+    }
+    if (m.includes('unable to validate email') || m.includes('invalid email')) {
+      return 'Проверьте, правильно ли введён e-mail.';
+    }
+    return 'Не удалось выполнить запрос. Проверьте данные и попробуйте ещё раз.';
+  }
+
+  async function signIn() {
+    const v = validate();
+    if (v) {
+      setError(v);
       return;
     }
     setError(null);
     setLoading(true);
-    const { error: verifyError } = await supabase.auth.verifyOtp({
+    const { error: signInError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
-      token,
-      type: 'email',
+      password,
     });
     setLoading(false);
-    if (verifyError) {
-      setError('Неверный или просроченный код. Проверьте цифры или запросите новый.');
+    if (signInError) {
+      setError(humanError(signInError.message));
       return;
     }
     // Успех: onAuthStateChange в корневом layout уведёт во вкладки.
   }
 
-  function backToEmail() {
+  async function signUp() {
+    const v = validate();
+    if (v) {
+      setError(v);
+      return;
+    }
     setError(null);
-    setCode('');
-    setPhase('email');
+    setLoading(true);
+    const { data, error: signUpError } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+    });
+    setLoading(false);
+    if (signUpError) {
+      setError(humanError(signUpError.message));
+      return;
+    }
+    // Подтверждение e-mail отключено → сессия создаётся сразу. Если её нет,
+    // значит подтверждение включено в настройках проекта — подскажем.
+    if (!data.session) {
+      setError('Аккаунт создан. Подтвердите e-mail или войдите по паролю.');
+    }
+    // При наличии сессии onAuthStateChange уведёт во вкладки.
   }
 
   return (
@@ -94,44 +108,36 @@ export default function LoginScreen() {
         </ThemedText>
       ) : (
         <View style={styles.form}>
-          {phase === 'email' ? (
-            <>
-              <ThemedText type="small" themeColor="textSecondary">
-                Введите e-mail — пришлём 6-значный код для входа.
-              </ThemedText>
-              <TextInput
-                style={inputStyle}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor={theme.textSecondary}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                textContentType="emailAddress"
-                editable={!loading}
-                onSubmitEditing={sendCode}
-              />
-            </>
-          ) : (
-            <>
-              <ThemedText type="small" themeColor="textSecondary">
-                Код отправлен на {email.trim()}. Введите 6 цифр из письма.
-              </ThemedText>
-              <TextInput
-                style={inputStyle}
-                value={code}
-                onChangeText={(t) => setCode(t.replace(/[^0-9]/g, '').slice(0, 6))}
-                placeholder="000000"
-                placeholderTextColor={theme.textSecondary}
-                keyboardType="number-pad"
-                textContentType="oneTimeCode"
-                maxLength={6}
-                editable={!loading}
-                onSubmitEditing={verifyCode}
-              />
-            </>
-          )}
+          <ThemedText type="small" themeColor="textSecondary">
+            Войдите по e-mail и паролю или зарегистрируйтесь.
+          </ThemedText>
+
+          <TextInput
+            style={inputStyle}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="you@example.com"
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            editable={!loading}
+          />
+
+          <TextInput
+            style={inputStyle}
+            value={password}
+            onChangeText={setPassword}
+            placeholder="Пароль (минимум 6 символов)"
+            placeholderTextColor={theme.textSecondary}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            textContentType="password"
+            editable={!loading}
+            onSubmitEditing={signIn}
+          />
 
           {error && (
             <ThemedText type="small" style={{ color: theme.warning }}>
@@ -143,23 +149,23 @@ export default function LoginScreen() {
             accessibilityRole="button"
             disabled={loading}
             style={[styles.button, { backgroundColor: theme.tint, opacity: loading ? 0.6 : 1 }]}
-            onPress={phase === 'email' ? sendCode : verifyCode}>
+            onPress={signIn}>
             {loading ? (
               <ActivityIndicator color="#ffffff" />
             ) : (
-              <ThemedText style={styles.buttonText}>
-                {phase === 'email' ? 'Получить код' : 'Войти'}
-              </ThemedText>
+              <ThemedText style={styles.buttonText}>Войти</ThemedText>
             )}
           </Pressable>
 
-          {phase === 'code' && !loading && (
-            <Pressable accessibilityRole="button" onPress={backToEmail} style={styles.linkButton}>
-              <ThemedText type="small" themeColor="textSecondary">
-                Изменить e-mail
-              </ThemedText>
-            </Pressable>
-          )}
+          <Pressable
+            accessibilityRole="button"
+            disabled={loading}
+            style={[styles.buttonOutline, { borderColor: theme.tint, opacity: loading ? 0.6 : 1 }]}
+            onPress={signUp}>
+            <ThemedText style={[styles.buttonOutlineText, { color: theme.tint }]}>
+              Зарегистрироваться
+            </ThemedText>
+          </Pressable>
         </View>
       )}
     </Screen>
@@ -197,8 +203,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
-  linkButton: {
+  buttonOutline: {
+    paddingVertical: Spacing.three,
+    paddingHorizontal: Spacing.four,
+    borderRadius: Spacing.three,
+    borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
-    paddingVertical: Spacing.two,
+  },
+  buttonOutlineText: {
+    fontWeight: '600',
+    fontSize: 16,
   },
 });
