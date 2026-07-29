@@ -71,23 +71,52 @@ export type ProcessResult = {
   red_flags_count: number;
 };
 
+// Достаёт настоящий текст ошибки из ответа Edge Function.
+// FunctionsHttpError кладёт тело (с нашим { error }) в error.context: Response.
+async function readInvokeError(error: unknown): Promise<string> {
+  const ctx = (error as { context?: unknown })?.context;
+  if (ctx && typeof (ctx as Response).text === 'function') {
+    try {
+      const raw = await (ctx as Response).text();
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed?.error) return String(parsed.error);
+      } catch {
+        // тело не JSON — вернём как есть ниже
+      }
+      if (raw) return raw.slice(0, 300);
+    } catch {
+      // не удалось прочитать тело — падаем на message
+    }
+  }
+  return (error as Error)?.message || 'Не удалось распознать анализ.';
+}
+
 /**
  * Запускает распознавание документа Edge Function'ом `process-document`.
  * JWT пользователя пробрасывается автоматически (invoke берёт его из сессии),
  * поэтому функция работает под RLS и видит только свои данные.
- * Бросает Error с понятным сообщением при неуспехе.
+ * Бросает Error с ПОНЯТНЫМ сообщением (реальная причина из тела ответа).
  */
 export async function processDocument(documentId: string): Promise<ProcessResult> {
+  console.log('[processDocument] invoke process-document, document_id =', documentId);
+
   const { data, error } = await supabase.functions.invoke<ProcessResult | { error: string }>(
     'process-document',
     { body: { document_id: documentId } },
   );
 
+  console.log('[processDocument] response', { data, error });
+
   if (error) {
-    throw new Error(error.message || 'Не удалось распознать анализ.');
+    const message = await readInvokeError(error);
+    console.error('[processDocument] invoke error:', message, error);
+    throw new Error(message);
   }
   if (!data || 'error' in data) {
-    throw new Error((data as { error?: string })?.error ?? 'Не удалось распознать анализ.');
+    const message = (data as { error?: string })?.error ?? 'Не удалось распознать анализ.';
+    console.error('[processDocument] function returned error body:', message);
+    throw new Error(message);
   }
   return data;
 }

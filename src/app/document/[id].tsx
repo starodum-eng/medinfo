@@ -15,7 +15,9 @@ import type { DocumentRow, LabResult, RedFlag } from '@/types/db';
 
 export default function DocumentDetailScreen() {
   const theme = useTheme();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // useLocalSearchParams может вернуть string | string[] — нормализуем к строке.
+  const params = useLocalSearchParams<{ id: string | string[] }>();
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [doc, setDoc] = useState<DocumentRow | null>(null);
   const [results, setResults] = useState<LabResult[]>([]);
@@ -25,7 +27,11 @@ export default function DocumentDetailScreen() {
   const [processing, setProcessing] = useState(false);
 
   const load = useCallback(async () => {
-    if (!id) return;
+    if (!id) {
+      setError('Не удалось определить документ (пустой id).');
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     // Всё типизированно и под RLS — вернутся только свои строки.
@@ -52,14 +58,24 @@ export default function DocumentDetailScreen() {
   );
 
   async function runProcessing() {
-    if (!id) return;
+    console.log('[DocumentDetail] «Обработать» нажата, id =', id, 'processing =', processing);
+    if (!id) {
+      // Раньше здесь был тихий return — теперь причина видна на экране.
+      setError('Не удалось определить документ (пустой id). Откройте анализ из истории заново.');
+      return;
+    }
+    if (processing) return;
     setProcessing(true);
     setError(null);
     try {
-      await processDocument(id);
+      const res = await processDocument(id);
+      console.log('[DocumentDetail] распознавание завершено', res);
+      // Перечитываем документ, показатели и флаги — статус и разбор появятся сами.
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось распознать анализ.');
+      const message = e instanceof Error ? e.message : 'Не удалось распознать анализ.';
+      console.error('[DocumentDetail] ошибка распознавания:', message, e);
+      setError(message);
     } finally {
       setProcessing(false);
     }
