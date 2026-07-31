@@ -138,29 +138,22 @@ Deno.serve(async (req) => {
     const base64 = btoa(binary);
     const mime = doc.storage_path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
 
-    // generationConfig собираем под конкретную модель. Для 2.5-flash выключаем
-    // thinking (thinkingBudget: 0), иначе «размышления» съедают лимит токенов и
-    // до самих показателей ответа не остаётся. У 2.0-flash thinkingConfig нет.
-    const buildBody = (model: string) => {
-      const generationConfig: Record<string, unknown> = {
+    // Большой лимит выходных токенов, чтобы на полной панели ответ не обрезался.
+    // thinkingConfig НЕ шлём: gemini-flash-latest отвергает его (400).
+    const requestBody = JSON.stringify({
+      contents: [{
+        role: "user",
+        parts: [
+          { text: EXTRACTION_PROMPT },
+          { inlineData: { mimeType: mime, data: base64 } },
+        ],
+      }],
+      generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.1,
         maxOutputTokens: 32768,
-      };
-      if (!model.includes("2.0")) {
-        generationConfig.thinkingConfig = { thinkingBudget: 0 };
-      }
-      return JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [
-            { text: EXTRACTION_PROMPT },
-            { inlineData: { mimeType: mime, data: base64 } },
-          ],
-        }],
-        generationConfig,
-      });
-    };
+      },
+    });
 
     // Перебираем модели: первая ответившая 200 — рабочая. 404 (модель недоступна)
     // -> пробуем следующую; иная ошибка -> сразу наверх с деталями.
@@ -173,7 +166,7 @@ Deno.serve(async (req) => {
       const resp = await fetch(GEMINI_URL(model, geminiKey), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: buildBody(model),
+        body: requestBody,
       });
       if (resp.ok) {
         geminiResp = resp;
