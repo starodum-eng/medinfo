@@ -42,6 +42,7 @@ export type DocumentRow = {
   taken_at: string | null;
   uploaded_at: string;
   status: DocumentStatus;
+  overall_note: string | null;
 };
 export type DocumentInsert = {
   id?: string;
@@ -51,12 +52,14 @@ export type DocumentInsert = {
   taken_at?: string | null;
   uploaded_at?: string;
   status?: DocumentStatus;
+  overall_note?: string | null;
 };
 export type DocumentUpdate = {
   storage_path?: string | null;
   doc_type?: DocType;
   taken_at?: string | null;
   status?: DocumentStatus;
+  overall_note?: string | null;
 };
 
 // ---------- lab_results ----------

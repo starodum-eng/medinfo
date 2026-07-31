@@ -39,12 +39,12 @@ export default function ProfileScreen() {
       <Pressable
         accessibilityRole="button"
         disabled={signingOut}
-        style={[styles.button, { borderColor: theme.border, opacity: signingOut ? 0.6 : 1 }]}
+        style={[styles.button, { borderColor: theme.danger, opacity: signingOut ? 0.6 : 1 }]}
         onPress={signOut}>
         {signingOut ? (
-          <ActivityIndicator color={theme.textSecondary} />
+          <ActivityIndicator color={theme.danger} />
         ) : (
-          <ThemedText type="small" themeColor="textSecondary">
+          <ThemedText type="default" style={{ color: theme.danger, fontWeight: '600' }}>
             Выйти
           </ThemedText>
         )}

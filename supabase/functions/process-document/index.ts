@@ -251,7 +251,12 @@ Deno.serve(async (req) => {
 
     const { error: updErr } = await supabase
       .from("documents")
-      .update({ status: "processed", taken_at: takenAt, doc_type: docType })
+      .update({
+        status: "processed",
+        taken_at: takenAt,
+        doc_type: docType,
+        overall_note: parsed.overall_note ?? null,
+      })
       .eq("id", documentId);
     if (updErr) throw new Error("Обновление документа: " + updErr.message);
 

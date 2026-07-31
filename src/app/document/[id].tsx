@@ -138,6 +138,17 @@ export default function DocumentDetailScreen() {
         </View>
       )}
 
+      {/* Общий разбор простым языком (overall_note модели). Нейтральный вывод,
+          НЕ диагноз — ничего к тексту не дописываем. */}
+      {doc?.overall_note ? (
+        <View style={[styles.plainBox, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+          <ThemedText type="small" themeColor="textSecondary" style={styles.plainTitle}>
+            Простыми словами
+          </ThemedText>
+          <ThemedText style={styles.plainText}>{doc.overall_note}</ThemedText>
+        </View>
+      ) : null}
+
       {/* Не обработан / ошибка — предлагаем запустить распознавание. */}
       {doc && doc.status !== 'processed' && (
         <View style={styles.state}>
@@ -240,6 +251,20 @@ const styles = StyleSheet.create({
     borderRadius: Spacing.three,
     borderWidth: StyleSheet.hairlineWidth,
     gap: Spacing.one,
+  },
+  plainBox: {
+    padding: Spacing.three,
+    borderRadius: Spacing.three,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: Spacing.one,
+  },
+  plainTitle: {
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  plainText: {
+    fontSize: 18,
+    lineHeight: 26,
   },
   state: {
     gap: Spacing.two,

@@ -1,7 +1,7 @@
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -49,7 +49,23 @@ function RootNavigator() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="document/[id]" options={{ title: 'Анализ' }} />
+      <Stack.Screen
+        name="document/[id]"
+        options={{
+          title: 'Анализ',
+          // Явная кнопка «Назад»: возвращаемся в историю, а если экран открыли
+          // через replace (из «Добавить») и назад некуда — уводим во вкладки.
+          headerBackVisible: false,
+          headerLeft: () => (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+              style={{ paddingVertical: 6, paddingRight: 16 }}>
+              <Text style={{ color: theme.tint, fontSize: 16 }}>‹ Назад</Text>
+            </Pressable>
+          ),
+        }}
+      />
     </Stack>
   );
 }
