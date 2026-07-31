@@ -138,31 +138,46 @@ Deno.serve(async (req) => {
     const base64 = btoa(binary);
     const mime = doc.storage_path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
 
-    const requestBody = JSON.stringify({
-      contents: [{
-        role: "user",
-        parts: [
-          { text: EXTRACTION_PROMPT },
-          { inlineData: { mimeType: mime, data: base64 } },
-        ],
-      }],
-      generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 8192 },
-    });
+    // generationConfig собираем под конкретную модель. Для 2.5-flash выключаем
+    // thinking (thinkingBudget: 0), иначе «размышления» съедают лимит токенов и
+    // до самих показателей ответа не остаётся. У 2.0-flash thinkingConfig нет.
+    const buildBody = (model: string) => {
+      const generationConfig: Record<string, unknown> = {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+        maxOutputTokens: 32768,
+      };
+      if (!model.includes("2.0")) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+      return JSON.stringify({
+        contents: [{
+          role: "user",
+          parts: [
+            { text: EXTRACTION_PROMPT },
+            { inlineData: { mimeType: mime, data: base64 } },
+          ],
+        }],
+        generationConfig,
+      });
+    };
 
     // Перебираем модели: первая ответившая 200 — рабочая. 404 (модель недоступна)
     // -> пробуем следующую; иная ошибка -> сразу наверх с деталями.
     const envModel = Deno.env.get("GEMINI_MODEL");
     const models = envModel ? [envModel] : DEFAULT_GEMINI_MODELS;
     let geminiResp: Response | null = null;
+    let usedModel = "";
     const tried: string[] = [];
     for (const model of models) {
       const resp = await fetch(GEMINI_URL(model, geminiKey), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: requestBody,
+        body: buildBody(model),
       });
       if (resp.ok) {
         geminiResp = resp;
+        usedModel = model;
         break;
       }
       const t = await resp.text();
@@ -177,8 +192,22 @@ Deno.serve(async (req) => {
     }
 
     const gJson = await geminiResp.json();
-    const rawText: string = gJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    const parsed = JSON.parse(rawText.replace(/```json|```/g, "").trim());
+    const candidate = gJson?.candidates?.[0];
+    const finishReason: string = candidate?.finishReason ?? "";
+    // Текст может прийти несколькими частями — склеиваем все.
+    const rawText: string = (candidate?.content?.parts ?? [])
+      .map((p: any) => p?.text ?? "")
+      .join("");
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(rawText.replace(/```json|```/g, "").trim() || "{}");
+    } catch (_e) {
+      throw new Error(
+        `Модель вернула не-JSON (finishReason=${finishReason}, model=${usedModel}): ` +
+          rawText.slice(0, 300),
+      );
+    }
 
     const results = Array.isArray(parsed.results) ? parsed.results : [];
     let redFlags = Array.isArray(parsed.red_flags) ? parsed.red_flags : [];
@@ -233,7 +262,19 @@ Deno.serve(async (req) => {
       .eq("id", documentId);
     if (updErr) throw new Error("Обновление документа: " + updErr.message);
 
-    return json({ ok: true, results_count: results.length, red_flags_count: redFlags.length });
+    return json({
+      ok: true,
+      results_count: results.length,
+      red_flags_count: redFlags.length,
+      // Диагностика (видна в консоли клиента): если показателей 0 — здесь причина.
+      debug: {
+        model: usedModel,
+        doc_type: docType,
+        finish_reason: finishReason,
+        overall_note: parsed.overall_note ?? null,
+        raw_preview: rawText.slice(0, 400),
+      },
+    });
   } catch (e) {
     if (documentId) {
       await supabase.from("documents").update({ status: "failed" }).eq("id", documentId);
