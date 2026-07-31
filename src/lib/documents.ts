@@ -101,10 +101,9 @@ async function readInvokeError(error: unknown): Promise<string> {
 export async function processDocument(documentId: string): Promise<ProcessResult> {
   console.log('[processDocument] invoke process-document, document_id =', documentId);
 
-  const { data, error } = await supabase.functions.invoke<ProcessResult | { error: string }>(
-    'process-document',
-    { body: { document_id: documentId } },
-  );
+  const { data, error } = await supabase.functions.invoke<unknown>('process-document', {
+    body: { document_id: documentId },
+  });
 
   console.log('[processDocument] response', { data, error });
 
@@ -113,10 +112,31 @@ export async function processDocument(documentId: string): Promise<ProcessResult
     console.error('[processDocument] invoke error:', message, error);
     throw new Error(message);
   }
-  if (!data || 'error' in data) {
-    const message = (data as { error?: string })?.error ?? 'Не удалось распознать анализ.';
-    console.error('[processDocument] function returned error body:', message);
-    throw new Error(message);
+
+  const body = data as { ok?: boolean; error?: string; results_count?: number } | null;
+
+  // Явная ошибка в теле (функция вернула { error }).
+  if (body && typeof body === 'object' && body.error) {
+    console.error('[processDocument] function returned error body:', body.error);
+    throw new Error(body.error);
   }
-  return data;
+
+  // Успех строго по форме { ok: true, ... }. Любой другой 200 (например, ответ
+  // шаблона-заглушки "Hello from Functions") — не наш результат: показываем тело.
+  if (!body || body.ok !== true) {
+    const raw = (() => {
+      try {
+        return JSON.stringify(body);
+      } catch {
+        return String(body);
+      }
+    })();
+    console.error('[processDocument] неожиданный ответ функции:', raw);
+    throw new Error(
+      'Функция вернула неожиданный ответ (возможно, развёрнут не тот код process-document): ' +
+        String(raw).slice(0, 300),
+    );
+  }
+
+  return body as ProcessResult;
 }
