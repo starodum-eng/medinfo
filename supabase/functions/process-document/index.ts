@@ -72,7 +72,11 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const anonKey = Deno.env.get("APP_SUPABASE_ANON_KEY")!; // publishable-ключ (секрет функции)
+  // Ключ клиента функции: сначала авто-инжектируемый платформой SUPABASE_ANON_KEY
+  // (всегда валиден), иначе — заданный вручную APP_SUPABASE_ANON_KEY (publishable).
+  // Так "Invalid API key" из-за незаданного/неверного секрета не воспроизводится.
+  const anonKey =
+    Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("APP_SUPABASE_ANON_KEY") ?? "";
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   const authHeader = req.headers.get("Authorization") ?? "";
 
@@ -90,6 +94,9 @@ Deno.serve(async (req) => {
   let documentId: string | null = null;
 
   try {
+    if (!anonKey) {
+      return json({ error: "Ключ Supabase не найден (SUPABASE_ANON_KEY/APP_SUPABASE_ANON_KEY)" }, 500);
+    }
     if (!geminiKey) return json({ error: "GEMINI_API_KEY не задан в секретах функции" }, 500);
 
     // Токен пользователя берём явно из заголовка и валидируем через getUser(token).
