@@ -5,9 +5,15 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const GEMINI_MODEL = "gemini-2.5-flash"; // при необходимости заменить на актуальную flash-модель
-const GEMINI_URL = (key: string) =>
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+// Кандидаты flash-моделей: берётся первая рабочая. Так депрекейт одной модели
+// не ломает распознавание. Точную модель можно задать секретом GEMINI_MODEL.
+const DEFAULT_GEMINI_MODELS = [
+  "gemini-flash-latest",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
+const GEMINI_URL = (model: string, key: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -132,23 +138,42 @@ Deno.serve(async (req) => {
     const base64 = btoa(binary);
     const mime = doc.storage_path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
 
-    const geminiResp = await fetch(GEMINI_URL(geminiKey), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [
-            { text: EXTRACTION_PROMPT },
-            { inlineData: { mimeType: mime, data: base64 } },
-          ],
-        }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 8192 },
-      }),
+    const requestBody = JSON.stringify({
+      contents: [{
+        role: "user",
+        parts: [
+          { text: EXTRACTION_PROMPT },
+          { inlineData: { mimeType: mime, data: base64 } },
+        ],
+      }],
+      generationConfig: { responseMimeType: "application/json", temperature: 0.1, maxOutputTokens: 8192 },
     });
-    if (!geminiResp.ok) {
-      const t = await geminiResp.text();
-      throw new Error(`Gemini ${geminiResp.status}: ${t.slice(0, 300)}`);
+
+    // Перебираем модели: первая ответившая 200 — рабочая. 404 (модель недоступна)
+    // -> пробуем следующую; иная ошибка -> сразу наверх с деталями.
+    const envModel = Deno.env.get("GEMINI_MODEL");
+    const models = envModel ? [envModel] : DEFAULT_GEMINI_MODELS;
+    let geminiResp: Response | null = null;
+    const tried: string[] = [];
+    for (const model of models) {
+      const resp = await fetch(GEMINI_URL(model, geminiKey), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+      });
+      if (resp.ok) {
+        geminiResp = resp;
+        break;
+      }
+      const t = await resp.text();
+      tried.push(`${model} -> ${resp.status}`);
+      // 404 = модель не найдена/недоступна: пробуем следующую. Иначе — стоп.
+      if (resp.status !== 404) {
+        throw new Error(`Gemini ${resp.status} (${model}): ${t.slice(0, 300)}`);
+      }
+    }
+    if (!geminiResp) {
+      throw new Error(`Ни одна модель Gemini недоступна: ${tried.join("; ")}`);
     }
 
     const gJson = await geminiResp.json();
