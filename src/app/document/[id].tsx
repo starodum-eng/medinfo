@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
@@ -15,6 +15,7 @@ import type { DocumentRow, LabResult, RedFlag } from '@/types/db';
 
 export default function DocumentDetailScreen() {
   const theme = useTheme();
+  const router = useRouter();
   // useLocalSearchParams может вернуть string | string[] — нормализуем к строке.
   const params = useLocalSearchParams<{ id: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
@@ -196,8 +197,10 @@ export default function DocumentDetailScreen() {
             ? `Референс: ${r.ref_low ?? '—'}–${r.ref_high ?? '—'}${r.unit ? ` ${r.unit}` : ''}`
             : null;
         return (
-          <View
+          <Pressable
             key={r.id}
+            accessibilityRole="button"
+            onPress={() => router.push(`/dynamics/${encodeURIComponent(r.analyte_name)}`)}
             style={[styles.card, { borderColor: theme.border, backgroundColor: theme.backgroundElement }]}>
             <View style={styles.cardHeader}>
               <ThemedText type="default" style={styles.analyte}>
@@ -222,7 +225,10 @@ export default function DocumentDetailScreen() {
                 {r.explanation}
               </ThemedText>
             )}
-          </View>
+            <ThemedText type="small" style={{ color: theme.tint }}>
+              График динамики ›
+            </ThemedText>
+          </Pressable>
         );
       })}
 

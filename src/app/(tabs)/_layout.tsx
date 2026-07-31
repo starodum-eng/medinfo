@@ -28,6 +28,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="dynamics"
+        options={{
+          title: 'Динамика',
+          tabBarIcon: ({ color }) => <TabIcon icon="📈" color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="add"
         options={{
           title: 'Добавить',

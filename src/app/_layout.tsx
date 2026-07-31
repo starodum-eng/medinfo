@@ -66,6 +66,21 @@ function RootNavigator() {
           ),
         }}
       />
+      <Stack.Screen
+        name="dynamics/[analyte]"
+        options={{
+          title: 'Динамика',
+          headerBackVisible: false,
+          headerLeft: () => (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
+              style={{ paddingVertical: 6, paddingRight: 16 }}>
+              <Text style={{ color: theme.tint, fontSize: 16 }}>‹ Назад</Text>
+            </Pressable>
+          ),
+        }}
+      />
     </Stack>
   );
 }
