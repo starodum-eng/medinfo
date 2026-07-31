@@ -92,8 +92,16 @@ Deno.serve(async (req) => {
   try {
     if (!geminiKey) return json({ error: "GEMINI_API_KEY не задан в секретах функции" }, 500);
 
-    const { data: userData, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !userData?.user) return json({ error: "Не авторизован" }, 401);
+    // Токен пользователя берём явно из заголовка и валидируем через getUser(token).
+    // Без аргумента getUser() ищет сохранённую сессию (её в функции нет) -> 401.
+    const token = authHeader.replace(/^Bearer\s+/i, "");
+    const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return json(
+        { error: "Не авторизован (getUser): " + (userErr?.message ?? "нет пользователя") },
+        401,
+      );
+    }
     const userId = userData.user.id;
 
     const body = await req.json().catch(() => ({}));
